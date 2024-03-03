@@ -19,3 +19,9 @@
 
 # Go workspace file
 go.work
+
+# custom
+spuria
+routes.csv
+test.txt
+test2.txt

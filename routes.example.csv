@@ -1,0 +1,5 @@
+/test,touch test.txt
+/test2,"echo 'newline
+text
+file
+here' > test2.txt"
