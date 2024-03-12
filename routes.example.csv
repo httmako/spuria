@@ -3,3 +3,7 @@
 text
 file
 here' > test2.txt"
+/test3,"echo 'newline
+$parm1
+$parm2
+here' > test3.txt"

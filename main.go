@@ -64,6 +64,7 @@ var logPath = flag.String("log", "stdout", "where to log to, e.g. `./spuria.log`
 var staticCommand = flag.String("cmd", "", "static command to execute for /do , e.g. `\"echo 'hi'\"` , if this is set no csv (-routes) will be loaded")
 var returnResult = flag.Bool("verbose", false, "returns the command output in the http response, default is OK/ERR for 200/500 response body")
 var rateLimit = flag.Int("ratelimit", 10, "requests allowed per URL per minute")
+var replaceParam = flag.Bool("replaceparam", false, "replace GET parameters starting with $ inside the bash script")
 
 func main() {
 	flag.Parse()
@@ -158,7 +159,7 @@ func main() {
 		mu.Unlock()
 
 		if value, exists := funcMap.Load(r.URL.Path); exists {
-			err, stdout, stderr := ExecuteCommand(r.URL.Path, value.(string), logger)
+			err, stdout, stderr := ExecuteCommand(r, value.(string), logger)
 			if err != nil {
 				w.WriteHeader(http.StatusInternalServerError)
 				if *returnResult {
@@ -194,7 +195,27 @@ func LogRequest(logger *slog.Logger, r *http.Request, returnCode int, err error)
 	logger.Info("request", "method", r.Method, "url", r.URL.Path, "status", returnCode, "source", r.RemoteAddr, "proto", r.Proto, "host", r.Host, "referer", r.Referer(), "useragent", r.UserAgent(), "err", err)
 }
 
-func ExecuteCommand(path, command string, logger *slog.Logger) (error, string, string) {
+func ExecuteCommand(r *http.Request, command string, logger *slog.Logger) (error, string, string) {
+	path := r.URL.Path
+	params := r.URL.Query()
+	if len(params) > 0 && *replaceParam {
+		for name, value := range params {
+			if len(value) <= 0 {
+				logger.Warn("get param error, no value for param?", "path", path, "name", name)
+				continue
+			}
+			if len(value) > 1 {
+				logger.Warn("get param error, please do not use params more than once", "path", path, "name", name)
+				continue
+			}
+			firstValue := value[0]
+			if !strings.HasPrefix(name, "$") {
+				logger.Warn("get param error, name has to begin with $", "path", path, "name", name, "value", firstValue)
+				continue
+			}
+			command = strings.ReplaceAll(command, name, firstValue)
+		}
+	}
 	ec := exec.Command("bash", "-c", command) //.Output()
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
