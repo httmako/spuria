@@ -17,7 +17,7 @@ import (
 	"time"
 )
 
-func LoadConfig(path string, logger *slog.Logger) sync.Map {
+func LoadConfig(path string, logger *slog.Logger) *sync.Map {
 	newMap := sync.Map{}
 	fileBytes, err := os.ReadFile(path)
 	if err != nil {
@@ -44,7 +44,7 @@ func LoadConfig(path string, logger *slog.Logger) sync.Map {
 		}
 		newMap.Store(path, cmd)
 	}
-	return newMap
+	return &newMap
 }
 
 func ParseIPList(input string) map[string]bool {
@@ -76,11 +76,11 @@ func main() {
 		logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
 	} else {
 		f, err := os.OpenFile(*logPath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
-		defer f.Close()
 		if err != nil {
 			fmt.Println("ERROR opening log file")
 			panic(err)
 		}
+        defer f.Close()
 		logger = slog.New(slog.NewTextHandler(f, nil))
 	}
 
@@ -89,7 +89,7 @@ func main() {
 	if *staticCommand != "" {
 		funcMap.Store("/do", *staticCommand)
 	} else if *configPath != "" {
-		funcMap = LoadConfig(*configPath, logger)
+		funcMap = *LoadConfig(*configPath, logger)
 	} else {
 		panic("ERROR: Please provide either -routes or -cmd !")
 	}
@@ -137,7 +137,7 @@ func main() {
 
 		//ip whitelist
 		if exists, value := allowedIPsMap[ip]; allowIPActive && (!exists || !value) {
-			fmt.Fprintf(w, "NOACCESS")
+			fmt.Fprint(w, "NOACCESS")
 			LogRequest(logger, r, 403, nil)
 			return
 		}
@@ -163,17 +163,17 @@ func main() {
 			if err != nil {
 				w.WriteHeader(http.StatusInternalServerError)
 				if *returnResult {
-					fmt.Fprintf(w, stderr)
+					fmt.Fprint(w, stderr)
 				} else {
-					fmt.Fprintf(w, "ERR")
+					fmt.Fprint(w, "ERR")
 				}
 				LogRequest(logger, r, 500, nil)
 			} else {
 				w.WriteHeader(http.StatusOK)
 				if *returnResult {
-					fmt.Fprintf(w, stdout)
+					fmt.Fprint(w, stdout)
 				} else {
-					fmt.Fprintf(w, "OK")
+					fmt.Fprint(w, "OK")
 				}
 				LogRequest(logger, r, 200, nil)
 			}
@@ -223,7 +223,7 @@ func ExecuteCommand(r *http.Request, command string, logger *slog.Logger) (error
 	ec.Stderr = &stderr
 	starttime := time.Now()
 	err := ec.Run()
-	timeTaken := time.Now().Sub(starttime).String()
+	timeTaken := time.Since(starttime).String()
 	outStr := stdout.String()
 	errStr := stderr.String()
 	if err != nil {
