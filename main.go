@@ -31,7 +31,7 @@ type Config struct {
 	Args           []string //old input
 }
 
-func LoadConfig(newMap *sync.Map, csvText []byte, logger *slog.Logger) error {
+func LoadRoutesIntoMap(newMap *sync.Map, csvText []byte, logger *slog.Logger) error {
 
 	r := csv.NewReader(bytes.NewReader(csvText))
 	rows, err := r.ReadAll()
@@ -134,7 +134,7 @@ func main() {
 			logger.Error("Couldn't read config.csv!")
 			panic(err)
 		}
-		err = LoadConfig(&funcMap, fileBytes, logger)
+		err = LoadRoutesIntoMap(&funcMap, fileBytes, logger)
 		if err != nil {
 			panic(err)
 		}
