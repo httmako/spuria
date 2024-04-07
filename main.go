@@ -17,6 +17,20 @@ import (
 	"time"
 )
 
+
+type Config struct {
+    Port int
+    IP string
+    IPallowed string
+    CsvPath string
+    LogPath string
+    StaticCommand string
+    ReturnResult bool
+    RateLimit int
+    ReplaceParam bool
+    Args []string //old input
+}
+
 func LoadConfig(path string, logger *slog.Logger) *sync.Map {
 	newMap := sync.Map{}
 	fileBytes, err := os.ReadFile(path)
@@ -56,26 +70,52 @@ func ParseIPList(input string) map[string]bool {
 	return newMap
 }
 
-var port = flag.Int("port", 4870, "port to listen on")
-var ip = flag.String("ip", "127.0.0.1", "which ip to listen on")
-var ipListStr = flag.String("allowed", "127.0.0.1", "which ips to respond to in a comma-sep list, e.g. `1.1.1.1,3.3.3.3`")
-var configPath = flag.String("routes", "", "bash commands file to load, e.g. `./routes.csv`")
-var logPath = flag.String("log", "stdout", "where to log to, e.g. `./spuria.log`")
-var staticCommand = flag.String("cmd", "", "static command to execute for /do , e.g. `\"echo 'hi'\"` , if this is set no csv (-routes) will be loaded")
-var returnResult = flag.Bool("verbose", false, "returns the command output in the http response, default is OK/ERR for 200/500 response body")
-var rateLimit = flag.Int("ratelimit", 10, "requests allowed per URL per minute")
-var replaceParam = flag.Bool("replaceparam", false, "replace GET parameters starting with $ inside the bash script")
+func parseFlags(appname string, args []string) (config *Config, output string, err error) {
+    flags := flag.NewFlagSet(appname, flag.ContinueOnError)
+    var buf bytes.Buffer
+    flags.SetOutput(&buf)
+    
+    var conf Config
+    flags.IntVar(&conf.Port,"port", 4870, "port to listen on")
+    flags.StringVar(&conf.IP,"ip", "127.0.0.1", "which ip to listen on")
+    flags.StringVar(&conf.IPallowed,"allowed", "127.0.0.1", "which ips to respond to in a comma-sep list, e.g. `1.1.1.1,3.3.3.3`")
+    flags.StringVar(&conf.CsvPath,"routes", "", "bash commands file to load, e.g. `./routes.csv`")
+    flags.StringVar(&conf.LogPath,"log", "stdout", "where to log to, e.g. `./spuria.log`")
+    flags.StringVar(&conf.StaticCommand,"cmd", "", "static command to execute for /do , e.g. `\"echo 'hi'\"` , if this is set no csv (-routes) will be loaded")
+    flags.BoolVar(&conf.ReturnResult,"verbose", false, "returns the command output in the http response, default is OK/ERR for 200/500 response body")
+    flags.IntVar(&conf.RateLimit,"ratelimit", 10, "requests allowed per URL per minute")
+    flags.BoolVar(&conf.ReplaceParam,"replaceparam", false, "replace GET parameters starting with $ inside the bash script")
+    
+    err = flags.Parse(args)
+    if err != nil {
+        return nil, buf.String(), err
+    }
+    conf.Args = flags.Args()
+    return &conf, buf.String(), nil
+}
+
+
+
 
 func main() {
-	flag.Parse()
 	starttime := time.Now()
+    
+    config, output, err := parseFlags(os.Args[0], os.Args[1:])
+    if err == flag.ErrHelp {
+        fmt.Println(output)
+        os.Exit(2)
+    } else if err != nil {
+        fmt.Println("FLAG ERROR:",err)
+        fmt.Println("FLAG OUTPUT:",output)
+        os.Exit(1)
+    }
 
 	//log
 	var logger *slog.Logger
-	if *logPath == "stdout" {
+	if config.LogPath == "stdout" {
 		logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
 	} else {
-		f, err := os.OpenFile(*logPath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
+		f, err := os.OpenFile(config.LogPath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
 		if err != nil {
 			fmt.Println("ERROR opening log file")
 			panic(err)
@@ -86,10 +126,10 @@ func main() {
 
 	//routes / bash commands
 	funcMap := sync.Map{}
-	if *staticCommand != "" {
-		funcMap.Store("/do", *staticCommand)
-	} else if *configPath != "" {
-		funcMap = *LoadConfig(*configPath, logger)
+	if config.StaticCommand != "" {
+		funcMap.Store("/do", config.StaticCommand)
+	} else if config.CsvPath != "" {
+		funcMap = *LoadConfig(config.CsvPath, logger)
 	} else {
 		panic("ERROR: Please provide either -routes or -cmd !")
 	}
@@ -97,9 +137,9 @@ func main() {
 	//ip whitelist
 	allowIPActive := false
 	allowedIPsMap := map[string]bool{}
-	if *ipListStr != "" {
+	if config.IPallowed != "" {
 		allowIPActive = true
-		allowedIPsMap = ParseIPList(*ipListStr)
+		allowedIPsMap = ParseIPList(config.IPallowed)
 	}
 
 	//ratelimit
@@ -111,11 +151,11 @@ func main() {
 	resetTime.Store(time.Now().Add(60 * time.Second).Unix())
 
 	//web
-	http.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("GET /metrics", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintln(w, "# TYPE isupdummy counter")
 		fmt.Fprintln(w, "isupdummy 1")
 	})
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" {
 			LogRequest(logger, r, 200, nil)
 			return
@@ -150,7 +190,7 @@ func main() {
 			reqCounter[r.URL.Path] = 1
 			resetTime.Store(time.Now().Add(60 * time.Second).Unix())
 		}
-		if reqCounter[r.URL.Path] > *rateLimit {
+		if reqCounter[r.URL.Path] > config.RateLimit {
 			mu.Unlock()
 			w.WriteHeader(http.StatusTooManyRequests)
 			LogRequest(logger, r, 429, nil)
@@ -159,10 +199,10 @@ func main() {
 		mu.Unlock()
 
 		if value, exists := funcMap.Load(r.URL.Path); exists {
-			err, stdout, stderr := ExecuteCommand(r, value.(string), logger)
+			err, stdout, stderr := ExecuteCommand(r, value.(string), config.ReplaceParam, logger)
 			if err != nil {
 				w.WriteHeader(http.StatusInternalServerError)
-				if *returnResult {
+				if config.ReturnResult {
 					fmt.Fprint(w, stderr)
 				} else {
 					fmt.Fprint(w, "ERR")
@@ -170,7 +210,7 @@ func main() {
 				LogRequest(logger, r, 500, nil)
 			} else {
 				w.WriteHeader(http.StatusOK)
-				if *returnResult {
+				if config.ReturnResult {
 					fmt.Fprint(w, stdout)
 				} else {
 					fmt.Fprint(w, "OK")
@@ -185,20 +225,20 @@ func main() {
 	})
 
 	donetime := time.Now()
-	logger.Info("Startup finished", "timetaken", donetime.Sub(starttime).String(), "ip", *ip, "port", *port, "configLocation", *configPath, "allowedIPs", *ipListStr, "logLocation", *logPath)
-	fmt.Println("Listening on ", *ip, ":", *port)
+	logger.Info("Startup finished", "timetaken", donetime.Sub(starttime).String(), "ip", config.IP, "port", config.Port, "configLocation", config.CsvPath, "allowedIPs", config.IPallowed, "logLocation", config.LogPath)
+	fmt.Println("Listening on ", config.IP, ":", config.Port)
 
-	fmt.Println(http.ListenAndServe(*ip+":"+strconv.Itoa(*port), nil))
+	fmt.Println(http.ListenAndServe(config.IP+":"+strconv.Itoa(config.Port), nil))
 }
 
 func LogRequest(logger *slog.Logger, r *http.Request, returnCode int, err error) {
 	logger.Info("request", "method", r.Method, "url", r.URL.Path, "status", returnCode, "source", r.RemoteAddr, "proto", r.Proto, "host", r.Host, "referer", r.Referer(), "useragent", r.UserAgent(), "err", err)
 }
 
-func ExecuteCommand(r *http.Request, command string, logger *slog.Logger) (error, string, string) {
+func ExecuteCommand(r *http.Request, command string, ShouldReplaceParam bool, logger *slog.Logger) (error, string, string) {
 	path := r.URL.Path
 	params := r.URL.Query()
-	if len(params) > 0 && *replaceParam {
+	if len(params) > 0 && ShouldReplaceParam {
 		for name, value := range params {
 			if len(value) <= 0 {
 				logger.Warn("get param error, no value for param?", "path", path, "name", name)
