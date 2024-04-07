@@ -17,22 +17,22 @@ import (
 	"time"
 )
 
-
 type Config struct {
-    Port int
-    IP string
-    IPallowed string
-    CsvPath string
-    LogPath string
-    StaticCommand string
-    ReturnResult bool
-    RateLimit int
-    ReplaceParam bool
-    Args []string //old input
+	Port           int
+	IP             string
+	IPwhitelist    bool
+	WhitelistedIPs map[string]bool
+	CsvPath        string
+	LogPath        string
+	StaticCommand  string
+	ReturnResult   bool
+	RateLimit      int
+	ReplaceParam   bool
+	Args           []string //old input
 }
 
 func LoadConfig(newMap *sync.Map, csvText []byte, logger *slog.Logger) error {
-	
+
 	r := csv.NewReader(bytes.NewReader(csvText))
 	rows, err := r.ReadAll()
 	if err != nil {
@@ -66,44 +66,49 @@ func ParseIPList(input string) map[string]bool {
 }
 
 func parseFlags(appname string, args []string) (config *Config, output string, err error) {
-    flags := flag.NewFlagSet(appname, flag.ContinueOnError)
-    var buf bytes.Buffer
-    flags.SetOutput(&buf)
-    
-    var conf Config
-    flags.IntVar(&conf.Port,"port", 4870, "port to listen on")
-    flags.StringVar(&conf.IP,"ip", "127.0.0.1", "which ip to listen on")
-    flags.StringVar(&conf.IPallowed,"allowed", "127.0.0.1", "which ips to respond to in a comma-sep list, e.g. `1.1.1.1,3.3.3.3`")
-    flags.StringVar(&conf.CsvPath,"routes", "", "bash commands file to load, e.g. `./routes.csv`")
-    flags.StringVar(&conf.LogPath,"log", "stdout", "where to log to, e.g. `./spuria.log`")
-    flags.StringVar(&conf.StaticCommand,"cmd", "", "static command to execute for /do , e.g. `\"echo 'hi'\"` , if this is set no csv (-routes) will be loaded")
-    flags.BoolVar(&conf.ReturnResult,"verbose", false, "returns the command output in the http response, default is OK/ERR for 200/500 response body")
-    flags.IntVar(&conf.RateLimit,"ratelimit", 10, "requests allowed per URL per minute")
-    flags.BoolVar(&conf.ReplaceParam,"replaceparam", false, "replace GET parameters starting with $ inside the bash script")
-    
-    err = flags.Parse(args)
-    if err != nil {
-        return nil, buf.String(), err
-    }
-    conf.Args = flags.Args()
-    return &conf, buf.String(), nil
+	flags := flag.NewFlagSet(appname, flag.ContinueOnError)
+	var buf bytes.Buffer
+	flags.SetOutput(&buf)
+
+	var conf Config
+	var allowedIPs string
+	flags.IntVar(&conf.Port, "port", 4870, "port to listen on")
+	flags.StringVar(&conf.IP, "ip", "127.0.0.1", "which ip to listen on")
+	flags.StringVar(&allowedIPs, "allowed", "127.0.0.1", "which ips to respond to in a comma-sep list, e.g. `1.1.1.1,3.3.3.3` (set to \"\" to disable)")
+	flags.StringVar(&conf.CsvPath, "routes", "", "bash commands file to load, e.g. `./routes.csv`")
+	flags.StringVar(&conf.LogPath, "log", "stdout", "where to log to, e.g. `./spuria.log`")
+	flags.StringVar(&conf.StaticCommand, "cmd", "", "static command to execute for /do , e.g. `\"echo 'hi'\"` , if this is set no csv (-routes) will be loaded")
+	flags.BoolVar(&conf.ReturnResult, "verbose", false, "returns the command output in the http response, default is OK/ERR for 200/500 response body")
+	flags.IntVar(&conf.RateLimit, "ratelimit", 10, "requests allowed per URL per minute")
+	flags.BoolVar(&conf.ReplaceParam, "replaceparam", false, "replace GET parameters starting with $ inside the bash script")
+
+	err = flags.Parse(args)
+	if err != nil {
+		return nil, buf.String(), err
+	}
+
+	conf.WhitelistedIPs = map[string]bool{}
+	if allowedIPs != "" {
+		conf.IPwhitelist = true
+		conf.WhitelistedIPs = ParseIPList(allowedIPs)
+	}
+
+	conf.Args = flags.Args()
+	return &conf, buf.String(), nil
 }
-
-
-
 
 func main() {
 	starttime := time.Now()
-    
-    config, output, err := parseFlags(os.Args[0], os.Args[1:])
-    if err == flag.ErrHelp {
-        fmt.Println(output)
-        os.Exit(2)
-    } else if err != nil {
-        fmt.Println("ERROR:",err)
-        // fmt.Println("FLAG OUTPUT:",output)
-        os.Exit(1)
-    }
+
+	config, output, err := parseFlags(os.Args[0], os.Args[1:])
+	if err == flag.ErrHelp {
+		fmt.Println(output)
+		os.Exit(2)
+	} else if err != nil {
+		fmt.Println("ERROR:", err)
+		// fmt.Println("FLAG OUTPUT:",output)
+		os.Exit(1)
+	}
 
 	//log
 	var logger *slog.Logger
@@ -115,7 +120,7 @@ func main() {
 			fmt.Println("ERROR opening log file")
 			panic(err)
 		}
-        defer f.Close()
+		defer f.Close()
 		logger = slog.New(slog.NewTextHandler(f, nil))
 	}
 
@@ -124,27 +129,33 @@ func main() {
 	if config.StaticCommand != "" {
 		funcMap.Store("/do", config.StaticCommand)
 	} else if config.CsvPath != "" {
-        fileBytes, err := os.ReadFile(config.CsvPath)
-        if err != nil {
-            logger.Error("Couldn't read config.csv!")
-            panic(err)
-        }
+		fileBytes, err := os.ReadFile(config.CsvPath)
+		if err != nil {
+			logger.Error("Couldn't read config.csv!")
+			panic(err)
+		}
 		err = LoadConfig(&funcMap, fileBytes, logger)
-        if err != nil {
-            panic(err)
-        }
+		if err != nil {
+			panic(err)
+		}
 	} else {
 		panic("ERROR: Please provide either -routes or -cmd !")
 	}
 
-	//ip whitelist
-	allowIPActive := false
-	allowedIPsMap := map[string]bool{}
-	if config.IPallowed != "" {
-		allowIPActive = true
-		allowedIPsMap = ParseIPList(config.IPallowed)
+	httpServer := &http.Server{
+		Addr:    net.JoinHostPort(config.IP, strconv.Itoa(config.Port)),
+		Handler: NewServer(config, &funcMap, logger),
 	}
 
+	donetime := time.Now()
+	logger.Info("Startup finished", "timetaken", donetime.Sub(starttime).String(), "ip", config.IP, "port", config.Port, "configLocation", config.CsvPath, "allowedIPs", config.WhitelistedIPs, "logLocation", config.LogPath)
+	fmt.Println("Listening on ", config.IP, ":", config.Port)
+
+	fmt.Println(httpServer.ListenAndServe())
+}
+
+func NewServer(config *Config, funcMap *sync.Map, logger *slog.Logger) http.Handler {
+	mux := http.NewServeMux()
 	//ratelimit
 	mu := sync.Mutex{}
 	// _=mu
@@ -154,11 +165,11 @@ func main() {
 	resetTime.Store(time.Now().Add(60 * time.Second).Unix())
 
 	//web
-	http.HandleFunc("GET /metrics", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /metrics", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintln(w, "# TYPE isupdummy counter")
 		fmt.Fprintln(w, "isupdummy 1")
 	})
-	http.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" {
 			LogRequest(logger, r, 200, nil)
 			return
@@ -179,7 +190,7 @@ func main() {
 		}
 
 		//ip whitelist
-		if exists, value := allowedIPsMap[ip]; allowIPActive && (!exists || !value) {
+		if exists, value := config.WhitelistedIPs[ip]; config.IPwhitelist && (!exists || !value) {
 			fmt.Fprint(w, "NOACCESS")
 			LogRequest(logger, r, 403, nil)
 			return
@@ -226,12 +237,7 @@ func main() {
 		fmt.Fprintf(w, "URL not found or configured! (%q)", r.URL.Path)
 		LogRequest(logger, r, 404, nil)
 	})
-
-	donetime := time.Now()
-	logger.Info("Startup finished", "timetaken", donetime.Sub(starttime).String(), "ip", config.IP, "port", config.Port, "configLocation", config.CsvPath, "allowedIPs", config.IPallowed, "logLocation", config.LogPath)
-	fmt.Println("Listening on ", config.IP, ":", config.Port)
-
-	fmt.Println(http.ListenAndServe(config.IP+":"+strconv.Itoa(config.Port), nil))
+	return mux
 }
 
 func LogRequest(logger *slog.Logger, r *http.Request, returnCode int, err error) {
