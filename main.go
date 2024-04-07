@@ -31,18 +31,13 @@ type Config struct {
     Args []string //old input
 }
 
-func LoadConfig(path string, logger *slog.Logger) *sync.Map {
-	newMap := sync.Map{}
-	fileBytes, err := os.ReadFile(path)
-	if err != nil {
-		logger.Error("Couldn't read config.csv!")
-		panic(err)
-	}
-	r := csv.NewReader(bytes.NewReader(fileBytes))
+func LoadConfig(newMap *sync.Map, csvText []byte, logger *slog.Logger) error {
+	
+	r := csv.NewReader(bytes.NewReader(csvText))
 	rows, err := r.ReadAll()
 	if err != nil {
-		logger.Error("Error parsing config.csv!")
-		panic(err)
+		logger.Error("Error parsing csv!")
+		return err
 	}
 
 	for k, row := range rows {
@@ -58,7 +53,7 @@ func LoadConfig(path string, logger *slog.Logger) *sync.Map {
 		}
 		newMap.Store(path, cmd)
 	}
-	return &newMap
+	return nil
 }
 
 func ParseIPList(input string) map[string]bool {
@@ -129,7 +124,15 @@ func main() {
 	if config.StaticCommand != "" {
 		funcMap.Store("/do", config.StaticCommand)
 	} else if config.CsvPath != "" {
-		funcMap = *LoadConfig(config.CsvPath, logger)
+        fileBytes, err := os.ReadFile(config.CsvPath)
+        if err != nil {
+            logger.Error("Couldn't read config.csv!")
+            panic(err)
+        }
+		err = LoadConfig(&funcMap, fileBytes, logger)
+        if err != nil {
+            panic(err)
+        }
 	} else {
 		panic("ERROR: Please provide either -routes or -cmd !")
 	}
