@@ -105,8 +105,8 @@ func main() {
         fmt.Println(output)
         os.Exit(2)
     } else if err != nil {
-        fmt.Println("FLAG ERROR:",err)
-        fmt.Println("FLAG OUTPUT:",output)
+        fmt.Println("ERROR:",err)
+        // fmt.Println("FLAG OUTPUT:",output)
         os.Exit(1)
     }
 
