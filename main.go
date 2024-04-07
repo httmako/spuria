@@ -191,6 +191,7 @@ func NewServer(config *Config, funcMap *sync.Map, logger *slog.Logger) http.Hand
 
 		//ip whitelist
 		if exists, value := config.WhitelistedIPs[ip]; config.IPwhitelist && (!exists || !value) {
+			w.WriteHeader(http.StatusForbidden)
 			fmt.Fprint(w, "NOACCESS")
 			LogRequest(logger, r, 403, nil)
 			return
