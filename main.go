@@ -278,7 +278,6 @@ func ExecuteCommand(r *http.Request, command string, ShouldReplaceParam bool, lo
 	errStr := stderr.String()
 	if err != nil {
 		logger.Error("execution error", "path", path, "duration", timeTaken, "stdout", outStr, "stderr", errStr, "err", err)
-		fmt.Println(err)
 		return err, outStr, errStr
 	}
 	logger.Info("execution success", "path", path, "duration", timeTaken, "stdout", outStr, "stderr", errStr)
