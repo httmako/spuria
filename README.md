@@ -6,11 +6,12 @@ Mini API server for executing bash on a remote server.
 The executable is only ~2MB in size (after using upx) and allows for IP whitelisting and prometheus "up" monitoring.  
 Security is granted by IP whitelisting and calls/minute limits. It uses no external packages, only inbuilt golang ones.
 
-There are 3 main HTTP codes used:
+There are 4 main HTTP codes used:
 
  - 200 ; successful execution of bash
  - 500 ; failed execution of bash
  - 404 ; URL not found
+ - 429 ; if the ratelimit of an URL is reached
 
 
 # Usecases
@@ -33,7 +34,7 @@ To start it you have to provide a command to be executed. Examples:
 
 ```bash
 # This will listen on /do and print out "hi" with http code 200
-./spuria -verbose -cmd "echo 'hi'"
+./spuria -returnresult -cmd "echo 'hi'"
 # This will listen on the configured routes /test and /test2 and create files if accessed
 ./spuria -routes routes.example.csv
 ```
@@ -56,6 +57,35 @@ $ cat test3.txt
 # ReplacedText
 # AnotherReplacedText
 # here
+```
+
+Full help output:
+
+```
+$ ./spuria --help
+Usage of ./spuria:
+  -allowedips 1.1.1.1,3.3.3.3
+        which ips to respond to in a comma-sep list, e.g. 1.1.1.1,3.3.3.3 (set to "" to disable) (default "127.0.0.1")
+  -cmd "echo 'hi'"
+        static command to execute for /do , e.g. "echo 'hi'" , if this is set no csv (-routes) will be loaded
+  -ip string
+        which ip to listen on (default "127.0.0.1")
+  -log ./spuria.log
+        where to log to, e.g. ./spuria.log (default "stdout")
+  -maxratelimit int
+        requests allowed per URL per minute, 0 = infinite (default 10)
+  -nostop
+        do not stop when encountering an error in the GET parameter replacement
+  -port int
+        port to listen on (default 4870)
+  -replaceparam
+        replace GET parameters starting with $ inside the bash script
+  -replaceregex string
+        regex for allowed GET parameter replacing characters (default "^[ a-zA-Z0-9/-]*$")
+  -returnresult
+        returns the command output in the http response, default is OK/ERR for 200/500 response body
+  -routes ./routes.csv
+        bash commands file to load, e.g. ./routes.csv
 ```
 
 
