@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/csv"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -10,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -18,17 +20,19 @@ import (
 )
 
 type Config struct {
-	Port           int
-	IP             string
-	IPwhitelist    bool
-	WhitelistedIPs map[string]bool
-	CsvPath        string
-	LogPath        string
-	StaticCommand  string
-	ReturnResult   bool
-	RateLimit      int
-	ReplaceParam   bool
-	Args           []string //old input
+	Port              int
+	IP                string
+	IPwhitelist       bool
+	WhitelistedIPs    map[string]bool
+	CsvPath           string
+	LogPath           string
+	StaticCommand     string
+	ReturnResult      bool
+	RateLimit         int
+	ReplaceParam      bool
+	ReplaceRegex      *regexp.Regexp
+	DontStopReplacing bool
+	Args              []string //old input
 }
 
 func LoadRoutesIntoMap(newMap *sync.Map, csvText []byte, logger *slog.Logger) error {
@@ -72,15 +76,18 @@ func parseFlags(appname string, args []string) (config *Config, output string, e
 
 	var conf Config
 	var allowedIPs string
+	var regex string
 	flags.IntVar(&conf.Port, "port", 4870, "port to listen on")
 	flags.StringVar(&conf.IP, "ip", "127.0.0.1", "which ip to listen on")
-	flags.StringVar(&allowedIPs, "allowed", "127.0.0.1", "which ips to respond to in a comma-sep list, e.g. `1.1.1.1,3.3.3.3` (set to \"\" to disable)")
+	flags.StringVar(&allowedIPs, "allowedips", "127.0.0.1", "which ips to respond to in a comma-sep list, e.g. `1.1.1.1,3.3.3.3` (set to \"\" to disable)")
 	flags.StringVar(&conf.CsvPath, "routes", "", "bash commands file to load, e.g. `./routes.csv`")
 	flags.StringVar(&conf.LogPath, "log", "stdout", "where to log to, e.g. `./spuria.log`")
 	flags.StringVar(&conf.StaticCommand, "cmd", "", "static command to execute for /do , e.g. `\"echo 'hi'\"` , if this is set no csv (-routes) will be loaded")
-	flags.BoolVar(&conf.ReturnResult, "verbose", false, "returns the command output in the http response, default is OK/ERR for 200/500 response body")
-	flags.IntVar(&conf.RateLimit, "ratelimit", 10, "requests allowed per URL per minute")
+	flags.BoolVar(&conf.ReturnResult, "returnresult", false, "returns the command output in the http response, default is OK/ERR for 200/500 response body")
+	flags.IntVar(&conf.RateLimit, "maxratelimit", 10, "requests allowed per URL per minute, 0 = infinite")
 	flags.BoolVar(&conf.ReplaceParam, "replaceparam", false, "replace GET parameters starting with $ inside the bash script")
+	flags.StringVar(&regex, "replaceregex", "^[ a-zA-Z0-9/-]*$", "regex for allowed GET parameter replacing characters")
+	flags.BoolVar(&conf.DontStopReplacing, "nostop", false, "do not stop when encountering an error in the GET parameter replacement")
 
 	err = flags.Parse(args)
 	if err != nil {
@@ -91,6 +98,12 @@ func parseFlags(appname string, args []string) (config *Config, output string, e
 	if allowedIPs != "" {
 		conf.IPwhitelist = true
 		conf.WhitelistedIPs = ParseIPList(allowedIPs)
+	}
+
+	// fmt.Println("regex:",regex)
+	conf.ReplaceRegex, err = regexp.Compile(regex)
+	if err != nil {
+		return nil, buf.String(), err
 	}
 
 	conf.Args = flags.Args()
@@ -205,7 +218,7 @@ func NewServer(config *Config, funcMap *sync.Map, logger *slog.Logger) http.Hand
 			reqCounter[r.URL.Path] = 1
 			resetTime.Store(time.Now().Add(60 * time.Second).Unix())
 		}
-		if reqCounter[r.URL.Path] > config.RateLimit {
+		if reqCounter[r.URL.Path] > config.RateLimit && config.RateLimit != 0 {
 			mu.Unlock()
 			w.WriteHeader(http.StatusTooManyRequests)
 			LogRequest(logger, r, 429, nil)
@@ -214,7 +227,7 @@ func NewServer(config *Config, funcMap *sync.Map, logger *slog.Logger) http.Hand
 		mu.Unlock()
 
 		if value, exists := funcMap.Load(r.URL.Path); exists {
-			err, stdout, stderr := ExecuteCommand(r, value.(string), config.ReplaceParam, logger)
+			err, stdout, stderr := ExecuteCommand(r, value.(string), config, logger)
 			if err != nil {
 				w.WriteHeader(http.StatusInternalServerError)
 				if config.ReturnResult {
@@ -245,25 +258,39 @@ func LogRequest(logger *slog.Logger, r *http.Request, returnCode int, err error)
 	logger.Info("request", "method", r.Method, "url", r.URL.Path, "status", returnCode, "source", r.RemoteAddr, "proto", r.Proto, "host", r.Host, "referer", r.Referer(), "useragent", r.UserAgent(), "err", err)
 }
 
-func ExecuteCommand(r *http.Request, command string, ShouldReplaceParam bool, logger *slog.Logger) (error, string, string) {
+func ExecuteCommand(r *http.Request, command string, config *Config, logger *slog.Logger) (error, string, string) {
 	path := r.URL.Path
 	params := r.URL.Query()
-	if len(params) > 0 && ShouldReplaceParam {
-		for name, value := range params {
-			if len(value) <= 0 {
-				logger.Warn("get param error, no value for param?", "path", path, "name", name)
-				continue
+	if len(params) > 0 && config.ReplaceParam {
+		logger.Info("replacing params", "params", params)
+		for name, values := range params {
+			value := values[0]
+			if len(values) <= 0 || len(values) > 1 {
+				logger.Warn("get param error, please only set GET parameter value once for each key", "path", path, "name", name, "length", len(values))
+				if config.DontStopReplacing {
+					continue
+				} else {
+					return errors.New("GET param has more than 1 or less than 1 values"), "", ""
+				}
 			}
-			if len(value) > 1 {
-				logger.Warn("get param error, please do not use params more than once", "path", path, "name", name)
-				continue
-			}
-			firstValue := value[0]
+
 			if !strings.HasPrefix(name, "$") {
-				logger.Warn("get param error, name has to begin with $", "path", path, "name", name, "value", firstValue)
-				continue
+				logger.Warn("get param error, name has to begin with $", "path", path, "name", name, "value", value)
+				if config.DontStopReplacing {
+					continue
+				} else {
+					return errors.New("GET param name doesn't begin with $"), "", ""
+				}
 			}
-			command = strings.ReplaceAll(command, name, firstValue)
+			if !config.ReplaceRegex.MatchString(value) {
+				logger.Warn("get param error, invalid input for regex", "path", path, "name", name, "value", value)
+				if config.DontStopReplacing {
+					continue
+				} else {
+					return errors.New("GET param value doesn't match regex"), "", ""
+				}
+			}
+			command = strings.ReplaceAll(command, name, value)
 		}
 	}
 	ec := exec.Command("bash", "-c", command) //.Output()

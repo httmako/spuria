@@ -2,15 +2,16 @@ package main
 
 import (
 	// "bytes"
-	// "fmt"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync"
 	"testing"
 	//config
 	"io"
 	"os"
-	"sync"
 )
 
 var csvTestFile = []byte(`/testBasic,echo 'hi'
@@ -23,7 +24,10 @@ $parm1
 $parm2
 here'"
 /testError,somethingthatdoesntexist
+/testFuzz,echo -n '$parm1'
 `)
+
+var flagArgs = []string{"-routes", "routes.example.csv", "-replaceparam", "-allowedips", "127.0.0.1,2.2.2.2"}
 
 var testLogger *slog.Logger
 var testFuncMap sync.Map
@@ -31,12 +35,11 @@ var testMux http.Handler
 var testConfig Config
 
 func TestConfigParsing(t *testing.T) {
-	args := []string{"-routes", "routes.example.csv", "-replaceparam", "-allowed", "127.0.0.1,2.2.2.2"}
-	config, _, err := parseFlags(os.Args[0], args)
-	testConfig = *config
+	config, _, err := parseFlags(os.Args[0], flagArgs)
 	if err != nil {
 		t.Fatal("Error during parseFlags", err)
 	}
+	testConfig = *config
 	if testConfig.CsvPath == "" {
 		t.Fatal("Missing CsvPath")
 	}
@@ -224,11 +227,11 @@ func TestParamOnlyReplaceDollar(t *testing.T) {
 	req, _ := http.NewRequest("GET", "/testReplace?newline=test", nil)
 	req.RemoteAddr = "127.0.0.1:123"
 	testMux.ServeHTTP(w, req)
-	if w.Code != 200 {
-		t.Fatal("req had http code != 200", w.Code)
+	if w.Code != 500 {
+		t.Fatal("req had http code != 500", w.Code)
 	}
 	body := w.Body.String()
-	if body != "newline\n$parm1\n$parm2\nhere\n" {
+	if body != "" {
 		t.Fatal("req had unexpected body : ", body)
 	}
 }
@@ -265,4 +268,47 @@ func TestSpamProtectionNotForOthers(t *testing.T) {
 	if body != "hi\n" {
 		t.Fatal("req had unexpected body : ", body)
 	}
+}
+
+func FuzzParamReplace(f *testing.F) {
+	for _, seed := range [][]byte{{}, {0}, {9}, {0xa}, {0xf}, {1, 2, 3, 4}} {
+		f.Add(seed)
+	}
+
+	testLogger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	config, _, err := parseFlags(os.Args[0], flagArgs)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	config.RateLimit = 99999999
+	config.ReturnResult = true
+	funcMap := sync.Map{}
+	err = LoadRoutesIntoMap(&funcMap, csvTestFile, testLogger)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	testMux := NewServer(config, &funcMap, testLogger)
+
+	f.Fuzz(func(t *testing.T, in []byte) {
+		stringIn := string(in)
+		w := httptest.NewRecorder()
+		req, err := http.NewRequest("GET", "/testFuzz?$parm1="+stringIn, nil)
+		if err != nil {
+			// t.Fatal(err)
+			return
+		}
+		req.RemoteAddr = "127.0.0.1:123"
+		testMux.ServeHTTP(w, req)
+		body := w.Body.String()
+		if body != stringIn && body != "$parm1" && //Same input or unchanged input, is ok
+			(body != "" && w.Code != 500) && //Filtered by regex, is ok
+			!strings.Contains(stringIn, "#") && //javascript # having different in-to-out is ok
+			!strings.Contains(stringIn, "&") && //filtered out by net/http
+			!strings.Contains(stringIn, "+") && //equals space, filtered out
+			!strings.Contains(stringIn, "%") { //equals special e.g. space, filtered out
+			t.Fatal("Bad input found:", "'"+body+"'", "'"+stringIn+"'")
+		}
+	})
 }
