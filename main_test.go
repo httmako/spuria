@@ -146,10 +146,6 @@ func TestNoRoute(t *testing.T) {
 	if w.Code != 404 {
 		t.Fatal("req had http code != 404", w.Code)
 	}
-	body := w.Body.String()
-	if body != "URL not found or configured! (\"/nonExisting\")" {
-		t.Fatal("req had unexpected body : ", body)
-	}
 }
 
 func TestVerbose(t *testing.T) {

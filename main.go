@@ -183,30 +183,15 @@ func NewServer(config *Config, funcMap *sync.Map, logger *slog.Logger) http.Hand
 		fmt.Fprintln(w, "isupdummy 1")
 	})
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/" {
-			LogRequest(logger, r, 200, nil)
-			return
-		}
-
-		defer func() {
-			if rc := recover(); rc != nil {
-				err := rc.(error)
-				LogRequest(logger, r, 500, err)
-			}
-		}()
-
 		ip, _, err := net.SplitHostPort(r.RemoteAddr)
 		if err != nil {
-			fmt.Println("ERROR WHEN PARSING REMOTEADDR")
-			fmt.Println(err)
-			return
+			panic(err)
 		}
 
 		//ip whitelist
 		if exists, value := config.WhitelistedIPs[ip]; config.IPwhitelist && (!exists || !value) {
 			w.WriteHeader(http.StatusForbidden)
 			fmt.Fprint(w, "NOACCESS")
-			LogRequest(logger, r, 403, nil)
 			return
 		}
 
@@ -221,41 +206,54 @@ func NewServer(config *Config, funcMap *sync.Map, logger *slog.Logger) http.Hand
 		if reqCounter[r.URL.Path] > config.RateLimit && config.RateLimit != 0 {
 			mu.Unlock()
 			w.WriteHeader(http.StatusTooManyRequests)
-			LogRequest(logger, r, 429, nil)
 			return
 		}
 		mu.Unlock()
 
-		if value, exists := funcMap.Load(r.URL.Path); exists {
-			err, stdout, stderr := ExecuteCommand(r, value.(string), config, logger)
-			if err != nil {
-				w.WriteHeader(http.StatusInternalServerError)
-				if config.ReturnResult {
-					fmt.Fprint(w, stderr)
-				} else {
-					fmt.Fprint(w, "ERR")
-				}
-				LogRequest(logger, r, 500, nil)
-			} else {
-				w.WriteHeader(http.StatusOK)
-				if config.ReturnResult {
-					fmt.Fprint(w, stdout)
-				} else {
-					fmt.Fprint(w, "OK")
-				}
-				LogRequest(logger, r, 200, nil)
-			}
+		value, exists := funcMap.Load(r.URL.Path)
+		if !exists {
+			http.NotFound(w, r)
 			return
 		}
-		w.WriteHeader(http.StatusNotFound)
-		fmt.Fprintf(w, "URL not found or configured! (%q)", r.URL.Path)
-		LogRequest(logger, r, 404, nil)
+
+		err, stdout, stderr := ExecuteCommand(r, value.(string), config, logger)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			if config.ReturnResult {
+				fmt.Fprint(w, stderr)
+			} else {
+				fmt.Fprint(w, "ERR")
+			}
+		} else {
+			w.WriteHeader(http.StatusOK)
+			if config.ReturnResult {
+				fmt.Fprint(w, stdout)
+			} else {
+				fmt.Fprint(w, "OK")
+			}
+		}
 	})
-	return mux
+	return WrapLogging(mux, logger)
 }
 
-func LogRequest(logger *slog.Logger, r *http.Request, returnCode int, err error) {
-	logger.Info("request", "method", r.Method, "url", r.URL.Path, "status", returnCode, "source", r.RemoteAddr, "proto", r.Proto, "host", r.Host, "referer", r.Referer(), "useragent", r.UserAgent(), "err", err)
+type logResponseWriter struct {
+	http.ResponseWriter
+	rc int
+}
+func (r *logResponseWriter) WriteHeader(statusCode int) {
+	r.ResponseWriter.WriteHeader(statusCode)
+	r.rc = statusCode
+}
+func WrapLogging(next http.Handler, logger *slog.Logger) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		lrw := logResponseWriter{ResponseWriter: w}
+		defer func() {
+			re := recover()
+			logger.Info("webreq", "ip", r.RemoteAddr, "url", r.URL, "duration", time.Since(start), "status", lrw.rc, "err", re)
+		}()
+		next.ServeHTTP(&lrw, r)
+	})
 }
 
 func ExecuteCommand(r *http.Request, command string, config *Config, logger *slog.Logger) (error, string, string) {
