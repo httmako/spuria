@@ -32,16 +32,13 @@ type Config struct {
 	ReplaceParam      bool
 	ReplaceRegex      *regexp.Regexp
 	DontStopReplacing bool
-	Args              []string //old input
 }
 
-func LoadRoutesIntoMap(newMap *sync.Map, csvText []byte, logger *slog.Logger) error {
-
+func LoadRoutesIntoMap(newMap *sync.Map, csvText []byte, logger *slog.Logger) {
 	r := csv.NewReader(bytes.NewReader(csvText))
 	rows, err := r.ReadAll()
 	if err != nil {
-		logger.Error("Error parsing csv!")
-		return err
+		panic(fmt.Errorf("erorr parsing csv: %s",err))
 	}
 
 	for k, row := range rows {
@@ -57,71 +54,46 @@ func LoadRoutesIntoMap(newMap *sync.Map, csvText []byte, logger *slog.Logger) er
 		}
 		newMap.Store(path, cmd)
 	}
-	return nil
 }
 
-func ParseIPList(input string) map[string]bool {
-	newMap := map[string]bool{}
-	list := strings.Split(input, ",")
-	for _, ip := range list {
-		newMap[strings.TrimSpace(ip)] = true
-	}
-	return newMap
-}
-
-func parseFlags(appname string, args []string) (config *Config, output string, err error) {
-	flags := flag.NewFlagSet(appname, flag.ContinueOnError)
-	var buf bytes.Buffer
-	flags.SetOutput(&buf)
-
+func parseFlags() (config *Config) {
 	var conf Config
 	var allowedIPs string
 	var regex string
-	flags.IntVar(&conf.Port, "port", 4870, "port to listen on")
-	flags.StringVar(&conf.IP, "ip", "127.0.0.1", "which ip to listen on")
-	flags.StringVar(&allowedIPs, "allowedips", "127.0.0.1", "which ips to respond to in a comma-sep list, e.g. `1.1.1.1,3.3.3.3` (set to \"\" to disable)")
-	flags.StringVar(&conf.CsvPath, "routes", "", "bash commands file to load, e.g. `./routes.csv`")
-	flags.StringVar(&conf.LogPath, "log", "stdout", "where to log to, e.g. `./spuria.log`")
-	flags.StringVar(&conf.StaticCommand, "cmd", "", "static command to execute for /do , e.g. `\"echo 'hi'\"` , if this is set no csv (-routes) will be loaded")
-	flags.BoolVar(&conf.ReturnResult, "returnresult", false, "returns the command output in the http response, default is OK/ERR for 200/500 response body")
-	flags.IntVar(&conf.RateLimit, "maxratelimit", 10, "requests allowed per URL per minute, 0 = infinite")
-	flags.BoolVar(&conf.ReplaceParam, "replaceparam", false, "replace GET parameters starting with $ inside the bash script")
-	flags.StringVar(&regex, "replaceregex", "^[ a-zA-Z0-9/-]*$", "regex for allowed GET parameter replacing characters")
-	flags.BoolVar(&conf.DontStopReplacing, "nostop", false, "do not stop when encountering an error in the GET parameter replacement")
+	flag.IntVar(&conf.Port, "port", 4870, "port to listen on")
+	flag.StringVar(&conf.IP, "ip", "127.0.0.1", "which ip to listen on")
+	flag.StringVar(&allowedIPs, "allowedips", "127.0.0.1", "which ips to respond to in a comma-sep list, e.g. `1.1.1.1,3.3.3.3` (set to \"\" to disable)")
+	flag.StringVar(&conf.CsvPath, "routes", "", "bash commands file to load, e.g. `./routes.csv`")
+	flag.StringVar(&conf.LogPath, "log", "stdout", "where to log to, e.g. `./spuria.log`")
+	flag.StringVar(&conf.StaticCommand, "cmd", "", "static command to execute for /do , e.g. `\"echo 'hi'\"` , if this is set no csv (-routes) will be loaded")
+	flag.BoolVar(&conf.ReturnResult, "returnresult", false, "returns the command output in the http response, default is OK/ERR for 200/500 response body")
+	flag.IntVar(&conf.RateLimit, "maxratelimit", 10, "requests allowed per URL per minute, 0 = infinite")
+	flag.BoolVar(&conf.ReplaceParam, "replaceparam", false, "replace GET parameters starting with $ inside the bash script")
+	flag.StringVar(&regex, "replaceregex", "^[ a-zA-Z0-9/-]*$", "regex for allowed GET parameter replacing characters")
+	flag.BoolVar(&conf.DontStopReplacing, "nostop", false, "do not stop when encountering an error in the GET parameter replacement")
 
-	err = flags.Parse(args)
-	if err != nil {
-		return nil, buf.String(), err
-	}
+	flag.Parse()
 
 	conf.WhitelistedIPs = map[string]bool{}
 	if allowedIPs != "" {
 		conf.IPwhitelist = true
-		conf.WhitelistedIPs = ParseIPList(allowedIPs)
+		for _, ip := range strings.Split(allowedIPs, ",") {
+			conf.WhitelistedIPs[strings.TrimSpace(ip)] = true
+		}
 	}
-
-	// fmt.Println("regex:",regex)
+	var err error
 	conf.ReplaceRegex, err = regexp.Compile(regex)
 	if err != nil {
-		return nil, buf.String(), err
+		panic(fmt.Errorf("error compiling regex: %s",err))
 	}
 
-	conf.Args = flags.Args()
-	return &conf, buf.String(), nil
+	return &conf
 }
 
 func main() {
 	starttime := time.Now()
 
-	config, output, err := parseFlags(os.Args[0], os.Args[1:])
-	if err == flag.ErrHelp {
-		fmt.Println(output)
-		os.Exit(2)
-	} else if err != nil {
-		fmt.Println("ERROR:", err)
-		// fmt.Println("FLAG OUTPUT:",output)
-		os.Exit(1)
-	}
+	config := parseFlags()
 
 	//log
 	var logger *slog.Logger
@@ -144,13 +116,9 @@ func main() {
 	} else if config.CsvPath != "" {
 		fileBytes, err := os.ReadFile(config.CsvPath)
 		if err != nil {
-			logger.Error("Couldn't read config.csv!")
-			panic(err)
+			panic(fmt.Errorf("error reading csv: %s",err))
 		}
-		err = LoadRoutesIntoMap(&funcMap, fileBytes, logger)
-		if err != nil {
-			panic(err)
-		}
+		LoadRoutesIntoMap(&funcMap, fileBytes, logger)
 	} else {
 		panic("ERROR: Please provide either -routes or -cmd !")
 	}
