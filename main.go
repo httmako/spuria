@@ -160,11 +160,10 @@ func main() {
 		Handler: NewServer(config, &funcMap, logger),
 	}
 
-	donetime := time.Now()
-	logger.Info("Startup finished", "timetaken", donetime.Sub(starttime).String(), "ip", config.IP, "port", config.Port, "configLocation", config.CsvPath, "allowedIPs", config.WhitelistedIPs, "logLocation", config.LogPath)
-	fmt.Println("Listening on ", config.IP, ":", config.Port)
-
-	fmt.Println(httpServer.ListenAndServe())
+	logger.Info("Startup finished", "timetaken", time.Since(starttime), "ip", config.IP, "port", config.Port, "configLocation", config.CsvPath, "allowedIPs", config.WhitelistedIPs, "logLocation", config.LogPath)
+	if err := httpServer.ListenAndServe(); err != nil {
+		panic(err)
+	}
 }
 
 func NewServer(config *Config, funcMap *sync.Map, logger *slog.Logger) http.Handler {
@@ -240,6 +239,7 @@ type logResponseWriter struct {
 	http.ResponseWriter
 	rc int
 }
+
 func (r *logResponseWriter) WriteHeader(statusCode int) {
 	r.ResponseWriter.WriteHeader(statusCode)
 	r.rc = statusCode
@@ -298,13 +298,6 @@ func ExecuteCommand(r *http.Request, command string, config *Config, logger *slo
 	ec.Stderr = &stderr
 	starttime := time.Now()
 	err := ec.Run()
-	timeTaken := time.Since(starttime).String()
-	outStr := stdout.String()
-	errStr := stderr.String()
-	if err != nil {
-		logger.Error("execution error", "path", path, "duration", timeTaken, "stdout", outStr, "stderr", errStr, "err", err)
-		return err, outStr, errStr
-	}
-	logger.Info("execution success", "path", path, "duration", timeTaken, "stdout", outStr, "stderr", errStr)
-	return nil, outStr, errStr
+	logger.Info("execution", "path", path, "duration", time.Since(starttime), "stdout", stdout.String(), "stderr", stderr.String(), "err", err)
+	return err, stdout.String(), stderr.String()
 }
