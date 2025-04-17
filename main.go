@@ -260,7 +260,6 @@ func ExecuteCommand(r *http.Request, command string, config *Config, logger *slo
 	path := r.URL.Path
 	params := r.URL.Query()
 	if len(params) > 0 && config.ReplaceParam {
-		logger.Info("replacing params", "params", params)
 		for name, values := range params {
 			value := values[0]
 			if len(values) <= 0 || len(values) > 1 {
