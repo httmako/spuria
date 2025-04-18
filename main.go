@@ -13,10 +13,8 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
-	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
@@ -124,7 +122,7 @@ func main() {
 	}
 
 	httpServer := &http.Server{
-		Addr:    net.JoinHostPort(config.IP, strconv.Itoa(config.Port)),
+		Addr:    fmt.Sprintf("%s:%d",config.IP, config.Port),
 		Handler: NewServer(config, funcMap, logger),
 	}
 
@@ -141,8 +139,7 @@ func NewServer(config *Config, funcMap map[string]string, logger *slog.Logger) h
 	// _=mu
 	reqCounter := map[string]int{}
 	// _=reqCounter
-	resetTime := atomic.Int64{}
-	resetTime.Store(time.Now().Add(60 * time.Second).Unix())
+	resetTime := time.Now().Add(60 * time.Second).Unix()
 
 	//web
 	mux.HandleFunc("GET /metrics", func(w http.ResponseWriter, r *http.Request) {
@@ -170,10 +167,9 @@ func NewServer(config *Config, funcMap map[string]string, logger *slog.Logger) h
 		//ratelimiter
 		mu.Lock()
 		reqCounter[r.URL.Path]++
-		timeWhenReset := resetTime.Load()
-		if time.Now().Unix() > timeWhenReset {
+		if time.Now().Unix() > resetTime {
 			reqCounter[r.URL.Path] = 1
-			resetTime.Store(time.Now().Add(60 * time.Second).Unix())
+			resetTime = time.Now().Add(60 * time.Second).Unix()
 		}
 		if reqCounter[r.URL.Path] > config.RateLimit && config.RateLimit != 0 {
 			mu.Unlock()
