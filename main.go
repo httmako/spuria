@@ -142,13 +142,12 @@ func NewServer(config *Config, funcMap map[string]string, logger *slog.Logger) h
 
 	//web
 	mux.HandleFunc("GET /metrics", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintln(w, "# TYPE spuria_up counter")
-		fmt.Fprintln(w, "spuria_up 1")
+		io.WriteString(w, "# TYPE spuria_up counter\nspuria_up 1")
 	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "GET" && r.Method != "POST" {
 			w.WriteHeader(http.StatusMethodNotAllowed)
-			fmt.Fprint(w, http.StatusText(http.StatusMethodNotAllowed))
+			io.WriteString(w, http.StatusText(http.StatusMethodNotAllowed))
 			return
 		}
 		ip, _, err := net.SplitHostPort(r.RemoteAddr)
@@ -159,7 +158,7 @@ func NewServer(config *Config, funcMap map[string]string, logger *slog.Logger) h
 		//ip whitelist
 		if exists, value := config.WhitelistedIPs[ip]; config.IPwhitelist && (!exists || !value) {
 			w.WriteHeader(http.StatusForbidden)
-			fmt.Fprint(w, "NOACCESS")
+			io.WriteString(w, "NOACCESS")
 			return
 		}
 
@@ -192,7 +191,7 @@ func NewServer(config *Config, funcMap map[string]string, logger *slog.Logger) h
 		if config.ReturnResult {
 			fmt.Fprint(w, stdouterr)
 		}else{
-			fmt.Fprint(w,http.StatusText(status))
+			io.WriteString(w,http.StatusText(status))
 		}
 	})
 	return WrapLogging(mux, logger)
