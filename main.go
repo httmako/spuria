@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"encoding/csv"
-	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -234,29 +233,12 @@ func ExecuteCommand(r *http.Request, command string, config *Config, logger *slo
 	if len(params) > 0 && config.ReplaceParam {
 		for name, values := range params {
 			value := values[0]
-			if len(values) <= 0 || len(values) > 1 {
-				logger.Warn("get param error, please only set GET parameter value once for each key", "path", path, "name", name, "length", len(values))
+			if len(values) > 1 || !strings.HasPrefix(name, "$") || !config.ReplaceRegex.MatchString(value) {
+				logger.Warn("replaceparam error", "path", path, "name", name, "value", value)
 				if config.DontStopReplacing {
 					continue
 				} else {
-					return "", errors.New("GET param has more than 1 or less than 1 values")
-				}
-			}
-
-			if !strings.HasPrefix(name, "$") {
-				logger.Warn("get param error, name has to begin with $", "path", path, "name", name, "value", value)
-				if config.DontStopReplacing {
-					continue
-				} else {
-					return "", errors.New("GET param name doesn't begin with $")
-				}
-			}
-			if !config.ReplaceRegex.MatchString(value) {
-				logger.Warn("get param error, invalid input for regex", "path", path, "name", name, "value", value)
-				if config.DontStopReplacing {
-					continue
-				} else {
-					return "", errors.New("GET param value doesn't match regex")
+					return "replaceparam error", fmt.Errorf("replaceparam error")
 				}
 			}
 			command = strings.ReplaceAll(command, name, value)
