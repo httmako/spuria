@@ -115,8 +115,8 @@ func TestForError(t *testing.T) {
 		t.Fatal("/testError had http code != 500", w.Code)
 	}
 	body := w.Body.String()
-	if body != "ERR" {
-		t.Fatal("/testError had body != 'ERR' : ", body)
+	if body != "Internal Server Error" {
+		t.Fatal("/testError had body != 'Internal Server Error' : ", body)
 	}
 }
 

@@ -189,20 +189,15 @@ func NewServer(config *Config, funcMap map[string]string, logger *slog.Logger) h
 		}
 
 		stdouterr, err := ExecuteCommand(r, value, config, logger)
+		status := http.StatusOK
 		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			if config.ReturnResult {
-				fmt.Fprint(w, stdouterr)
-			} else {
-				fmt.Fprint(w, "ERR")
-			}
-		} else {
-			w.WriteHeader(http.StatusOK)
-			if config.ReturnResult {
-				fmt.Fprint(w, stdouterr)
-			} else {
-				fmt.Fprint(w, "OK")
-			}
+			status = http.StatusInternalServerError
+		}
+		w.WriteHeader(status)
+		if config.ReturnResult {
+			fmt.Fprint(w, stdouterr)
+		}else{
+			fmt.Fprint(w,http.StatusText(status))
 		}
 	})
 	return WrapLogging(mux, logger)
