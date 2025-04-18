@@ -32,7 +32,7 @@ type Config struct {
 	DontStopReplacing bool
 }
 
-func LoadRoutesIntoMap(newMap map[string]string, csvText []byte, logger *slog.Logger) {
+func LoadRoutesIntoMap(newMap map[string]string, csvText []byte) {
 	r := csv.NewReader(bytes.NewReader(csvText))
 	rows, err := r.ReadAll()
 	if err != nil {
@@ -40,17 +40,10 @@ func LoadRoutesIntoMap(newMap map[string]string, csvText []byte, logger *slog.Lo
 	}
 
 	for k, row := range rows {
-		path := row[0]
-		if path == "" {
-			logger.Warn("Skipping row because of missing URL", "row", k+1)
-			continue
+		if row[0] == "" || row[1] == "" {
+			panic(fmt.Errorf("error parsing csv: line %d: wrong number of fields",k))
 		}
-		cmd := row[1]
-		if cmd == "" {
-			logger.Warn("Skipping row because of missing command", "row", k+1)
-			continue
-		}
-		newMap[path] = cmd
+		newMap[row[0]] = row[1]
 	}
 }
 
@@ -115,7 +108,7 @@ func main() {
 		if err != nil {
 			panic(fmt.Errorf("error reading csv: %s",err))
 		}
-		LoadRoutesIntoMap(funcMap, fileBytes, logger)
+		LoadRoutesIntoMap(funcMap, fileBytes)
 	} else {
 		panic("ERROR: Please provide either -routes or -cmd !")
 	}

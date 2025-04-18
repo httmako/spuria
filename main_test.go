@@ -51,7 +51,7 @@ func TestMain(m *testing.M) {
 }
 
 func TestCsvParsing(t *testing.T) {
-	LoadRoutesIntoMap(testFuncMap, csvTestFile, testLogger)
+	LoadRoutesIntoMap(testFuncMap, csvTestFile)
 	if _, exists := testFuncMap["/testBasic"]; !exists {
 		t.Fatal("funcMap missed /testBasic")
 	}
