@@ -1,7 +1,7 @@
 package main
 
 import (
-	// "bytes"
+	"bytes"
 	//"fmt"
 	"log/slog"
 	"net/http"
@@ -27,6 +27,7 @@ $parm2
 here'"
 /testError,somethingthatdoesntexist
 /testFuzz,echo -n '$parm1'
+/testPost,echo -n '$body'
 `)
 
 var testLogger *slog.Logger
@@ -76,16 +77,16 @@ func TestServerCreation(t *testing.T) {
 	}
 }
 
-func TestDontAllowPost(t *testing.T) {
+func TestDontAllowPut(t *testing.T) {
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("POST", "/testBasic", nil)
+	req, _ := http.NewRequest("PUT", "/testBasic", nil)
 	req.RemoteAddr = "127.0.0.1:123"
 	testMux.ServeHTTP(w, req)
 	if w.Code != 405 {
 		t.Fatal("/testBasic had http code != 405", w.Code)
 	}
 	body := w.Body.String()
-	if body != "Method Not Allowed\n" {
+	if body != "Method Not Allowed" {
 		t.Fatal("/testBasic had body != 'Method Not Allowed' : ", body)
 	}
 }
@@ -211,6 +212,20 @@ func TestParamReplaceOne(t *testing.T) {
 	body := w.Body.String()
 	if body != "newline\ntest\n$parm2\nhere\n" {
 		t.Fatal("req had unexpected body : ", body)
+	}
+}
+
+func TestParamReplacePostBody(t *testing.T) {
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/testPost", bytes.NewReader([]byte("MYPOSTBODY")))
+	req.RemoteAddr = "127.0.0.1:123"
+	testMux.ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatal("req had http code != 200", w.Code)
+	}
+	body := w.Body.String()
+	if body != "MYPOSTBODY" {
+		t.Fatal("req had unexpected body: ", body)
 	}
 }
 

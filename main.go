@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"io"
 	"os"
 	"os/exec"
 	"regexp"
@@ -68,9 +69,9 @@ func parseFlags() (config *Config) {
 	flag.StringVar(&conf.StaticCommand, "cmd", "", "static command to execute for /do , e.g. `\"echo 'hi'\"` , if this is set no csv (-routes) will be loaded")
 	flag.BoolVar(&conf.ReturnResult, "returnresult", false, "returns the command output in the http response, default is OK/ERR for 200/500 response body")
 	flag.IntVar(&conf.RateLimit, "maxratelimit", 10, "requests allowed per URL per minute, 0 = infinite")
-	flag.BoolVar(&conf.ReplaceParam, "replaceparam", false, "replace GET parameters starting with $ inside the bash script")
-	flag.StringVar(&regex, "replaceregex", "^[ a-zA-Z0-9/-]*$", "regex for allowed GET parameter replacing characters")
-	flag.BoolVar(&conf.DontStopReplacing, "nostop", false, "do not stop when encountering an error in the GET parameter replacement")
+	flag.BoolVar(&conf.ReplaceParam, "replaceparam", false, "replace GET parameters starting with $ inside the bash script, POST body will be replacing $body")
+	flag.StringVar(&regex, "replaceregex", "^[ a-zA-Z0-9/-]*$", "regex for allowed parameter replacing characters")
+	flag.BoolVar(&conf.DontStopReplacing, "nostop", false, "do not stop when encountering an error in the parameter replacement")
 
 	flag.Parse()
 
@@ -149,7 +150,12 @@ func NewServer(config *Config, funcMap *sync.Map, logger *slog.Logger) http.Hand
 		fmt.Fprintln(w, "# TYPE isupdummy counter")
 		fmt.Fprintln(w, "isupdummy 1")
 	})
-	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" && r.Method != "POST" {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			fmt.Fprint(w, http.StatusText(http.StatusMethodNotAllowed))
+			return
+		}
 		ip, _, err := net.SplitHostPort(r.RemoteAddr)
 		if err != nil {
 			panic(err)
@@ -227,6 +233,14 @@ func WrapLogging(next http.Handler, logger *slog.Logger) http.Handler {
 func ExecuteCommand(r *http.Request, command string, config *Config, logger *slog.Logger) (error, string, string) {
 	path := r.URL.Path
 	params := r.URL.Query()
+	if r.Method == "POST" {
+		params = map[string][]string{}
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			panic(fmt.Errorf("error reading body: %s",err))
+		}
+		params["$body"] = []string{string(body)}
+	}
 	if len(params) > 0 && config.ReplaceParam {
 		for name, values := range params {
 			value := values[0]

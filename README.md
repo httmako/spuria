@@ -42,6 +42,8 @@ To start it you have to provide a command to be executed. Examples:
 You can also make it more dynamic and not only execute static bash scripts.  
 If you provide the `-replaceparam` flag then GET parameters will be used inside the bash script.  
 Only GET parameters starting with a $ will have their param name replaced with the value inside the command.  
+If you send a POST request the body of the request will replace the `$body` variable inside the command.
+Only POST and GET requests are allowed.
 Example:
 
 ```bash
@@ -75,13 +77,13 @@ Usage of ./spuria:
   -maxratelimit int
         requests allowed per URL per minute, 0 = infinite (default 10)
   -nostop
-        do not stop when encountering an error in the GET parameter replacement
+        do not stop when encountering an error in the parameter replacement
   -port int
         port to listen on (default 4870)
   -replaceparam
-        replace GET parameters starting with $ inside the bash script
+        replace GET parameters starting with $ inside the bash script, POST body will be replacing $body
   -replaceregex string
-        regex for allowed GET parameter replacing characters (default "^[ a-zA-Z0-9/-]*$")
+        regex for allowed parameter replacing characters (default "^[ a-zA-Z0-9/-]*$")
   -returnresult
         returns the command output in the http response, default is OK/ERR for 200/500 response body
   -routes ./routes.csv
