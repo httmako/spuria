@@ -146,8 +146,8 @@ func NewServer(config *Config, funcMap map[string]string, logger *slog.Logger) h
 
 	//web
 	mux.HandleFunc("GET /metrics", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintln(w, "# TYPE isupdummy counter")
-		fmt.Fprintln(w, "isupdummy 1")
+		fmt.Fprintln(w, "# TYPE spuria_up counter")
+		fmt.Fprintln(w, "spuria_up 1")
 	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "GET" && r.Method != "POST" {
