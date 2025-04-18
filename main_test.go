@@ -239,7 +239,7 @@ func TestParamOnlyReplaceDollar(t *testing.T) {
 		t.Fatal("req had http code != 500", w.Code)
 	}
 	body := w.Body.String()
-	if body != "" {
+	if body != "replaceparam error" {
 		t.Fatal("req had unexpected body : ", body)
 	}
 }
