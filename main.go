@@ -103,8 +103,7 @@ func main() {
 	} else {
 		f, err := os.OpenFile(config.LogPath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
 		if err != nil {
-			fmt.Println("ERROR opening log file")
-			panic(err)
+			panic(fmt.Errorf("error opening log file: %s",err))
 		}
 		defer f.Close()
 		logger = slog.New(slog.NewTextHandler(f, nil))
@@ -189,18 +188,18 @@ func NewServer(config *Config, funcMap *sync.Map, logger *slog.Logger) http.Hand
 			return
 		}
 
-		err, stdout, stderr := ExecuteCommand(r, value.(string), config, logger)
+		err, stdouterr := ExecuteCommand(r, value.(string), config, logger)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			if config.ReturnResult {
-				fmt.Fprint(w, stderr)
+				fmt.Fprint(w, stdouterr)
 			} else {
 				fmt.Fprint(w, "ERR")
 			}
 		} else {
 			w.WriteHeader(http.StatusOK)
 			if config.ReturnResult {
-				fmt.Fprint(w, stdout)
+				fmt.Fprint(w, stdouterr)
 			} else {
 				fmt.Fprint(w, "OK")
 			}
@@ -230,7 +229,7 @@ func WrapLogging(next http.Handler, logger *slog.Logger) http.Handler {
 	})
 }
 
-func ExecuteCommand(r *http.Request, command string, config *Config, logger *slog.Logger) (error, string, string) {
+func ExecuteCommand(r *http.Request, command string, config *Config, logger *slog.Logger) (error, string) {
 	path := r.URL.Path
 	params := r.URL.Query()
 	if r.Method == "POST" {
@@ -249,7 +248,7 @@ func ExecuteCommand(r *http.Request, command string, config *Config, logger *slo
 				if config.DontStopReplacing {
 					continue
 				} else {
-					return errors.New("GET param has more than 1 or less than 1 values"), "", ""
+					return errors.New("GET param has more than 1 or less than 1 values"), ""
 				}
 			}
 
@@ -258,7 +257,7 @@ func ExecuteCommand(r *http.Request, command string, config *Config, logger *slo
 				if config.DontStopReplacing {
 					continue
 				} else {
-					return errors.New("GET param name doesn't begin with $"), "", ""
+					return errors.New("GET param name doesn't begin with $"), ""
 				}
 			}
 			if !config.ReplaceRegex.MatchString(value) {
@@ -266,19 +265,15 @@ func ExecuteCommand(r *http.Request, command string, config *Config, logger *slo
 				if config.DontStopReplacing {
 					continue
 				} else {
-					return errors.New("GET param value doesn't match regex"), "", ""
+					return errors.New("GET param value doesn't match regex"), ""
 				}
 			}
 			command = strings.ReplaceAll(command, name, value)
 		}
 	}
 	ec := exec.Command("bash", "-c", command) //.Output()
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	ec.Stdout = &stdout
-	ec.Stderr = &stderr
 	starttime := time.Now()
-	err := ec.Run()
-	logger.Info("execution", "path", path, "duration", time.Since(starttime), "stdout", stdout.String(), "stderr", stderr.String(), "err", err)
-	return err, stdout.String(), stderr.String()
+	body, err := ec.CombinedOutput()
+	logger.Info("execution", "path", path, "duration", time.Since(starttime), "stdouterr", string(body), "err", err)
+	return err, string(body)
 }
