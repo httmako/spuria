@@ -5,10 +5,10 @@ import (
 	"encoding/csv"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
-	"io"
 	"os"
 	"os/exec"
 	"regexp"
@@ -36,12 +36,12 @@ func LoadRoutesIntoMap(newMap map[string]string, csvText []byte) {
 	r := csv.NewReader(bytes.NewReader(csvText))
 	rows, err := r.ReadAll()
 	if err != nil {
-		panic(fmt.Errorf("erorr parsing csv: %s",err))
+		panic(fmt.Errorf("erorr parsing csv: %s", err))
 	}
 
 	for k, row := range rows {
 		if row[0] == "" || row[1] == "" {
-			panic(fmt.Errorf("error parsing csv: line %d: wrong number of fields",k))
+			panic(fmt.Errorf("error parsing csv: line %d: wrong number of fields", k))
 		}
 		newMap[row[0]] = row[1]
 	}
@@ -75,7 +75,7 @@ func parseFlags() (config *Config) {
 	var err error
 	conf.ReplaceRegex, err = regexp.Compile(regex)
 	if err != nil {
-		panic(fmt.Errorf("error compiling regex: %s",err))
+		panic(fmt.Errorf("error compiling regex: %s", err))
 	}
 
 	return &conf
@@ -93,7 +93,7 @@ func main() {
 	} else {
 		f, err := os.OpenFile(config.LogPath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
 		if err != nil {
-			panic(fmt.Errorf("error opening log file: %s",err))
+			panic(fmt.Errorf("error opening log file: %s", err))
 		}
 		defer f.Close()
 		logger = slog.New(slog.NewTextHandler(f, nil))
@@ -106,7 +106,7 @@ func main() {
 	} else if config.CsvPath != "" {
 		fileBytes, err := os.ReadFile(config.CsvPath)
 		if err != nil {
-			panic(fmt.Errorf("error reading csv: %s",err))
+			panic(fmt.Errorf("error reading csv: %s", err))
 		}
 		LoadRoutesIntoMap(funcMap, fileBytes)
 	} else {
@@ -114,7 +114,7 @@ func main() {
 	}
 
 	httpServer := &http.Server{
-		Addr:    fmt.Sprintf("%s:%d",config.IP, config.Port),
+		Addr:    fmt.Sprintf("%s:%d", config.IP, config.Port),
 		Handler: NewServer(config, funcMap, logger),
 	}
 
@@ -183,8 +183,8 @@ func NewServer(config *Config, funcMap map[string]string, logger *slog.Logger) h
 		w.WriteHeader(status)
 		if config.ReturnResult {
 			fmt.Fprint(w, stdouterr)
-		}else{
-			io.WriteString(w,http.StatusText(status))
+		} else {
+			io.WriteString(w, http.StatusText(status))
 		}
 	})
 	return WrapLogging(mux, logger)
@@ -218,7 +218,7 @@ func ExecuteCommand(r *http.Request, command string, config *Config, logger *slo
 		params = map[string][]string{}
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
-			panic(fmt.Errorf("error reading body: %s",err))
+			panic(fmt.Errorf("error reading body: %s", err))
 		}
 		params["$body"] = []string{string(body)}
 	}
