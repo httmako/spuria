@@ -35,7 +35,7 @@ type Config struct {
 	DontStopReplacing bool
 }
 
-func LoadRoutesIntoMap(newMap *sync.Map, csvText []byte, logger *slog.Logger) {
+func LoadRoutesIntoMap(newMap map[string]string, csvText []byte, logger *slog.Logger) {
 	r := csv.NewReader(bytes.NewReader(csvText))
 	rows, err := r.ReadAll()
 	if err != nil {
@@ -53,7 +53,7 @@ func LoadRoutesIntoMap(newMap *sync.Map, csvText []byte, logger *slog.Logger) {
 			logger.Warn("Skipping row because of missing command", "row", k+1)
 			continue
 		}
-		newMap.Store(path, cmd)
+		newMap[path] = cmd
 	}
 }
 
@@ -110,22 +110,22 @@ func main() {
 	}
 
 	//routes / bash commands
-	funcMap := sync.Map{}
+	funcMap := map[string]string{}
 	if config.StaticCommand != "" {
-		funcMap.Store("/do", config.StaticCommand)
+		funcMap["/do"] = config.StaticCommand
 	} else if config.CsvPath != "" {
 		fileBytes, err := os.ReadFile(config.CsvPath)
 		if err != nil {
 			panic(fmt.Errorf("error reading csv: %s",err))
 		}
-		LoadRoutesIntoMap(&funcMap, fileBytes, logger)
+		LoadRoutesIntoMap(funcMap, fileBytes, logger)
 	} else {
 		panic("ERROR: Please provide either -routes or -cmd !")
 	}
 
 	httpServer := &http.Server{
 		Addr:    net.JoinHostPort(config.IP, strconv.Itoa(config.Port)),
-		Handler: NewServer(config, &funcMap, logger),
+		Handler: NewServer(config, funcMap, logger),
 	}
 
 	logger.Info("Startup finished", "timetaken", time.Since(starttime), "ip", config.IP, "port", config.Port, "configLocation", config.CsvPath, "allowedIPs", config.WhitelistedIPs, "logLocation", config.LogPath)
@@ -134,7 +134,7 @@ func main() {
 	}
 }
 
-func NewServer(config *Config, funcMap *sync.Map, logger *slog.Logger) http.Handler {
+func NewServer(config *Config, funcMap map[string]string, logger *slog.Logger) http.Handler {
 	mux := http.NewServeMux()
 	//ratelimit
 	mu := sync.Mutex{}
@@ -182,13 +182,13 @@ func NewServer(config *Config, funcMap *sync.Map, logger *slog.Logger) http.Hand
 		}
 		mu.Unlock()
 
-		value, exists := funcMap.Load(r.URL.Path)
+		value, exists := funcMap[r.URL.Path]
 		if !exists {
 			http.NotFound(w, r)
 			return
 		}
 
-		err, stdouterr := ExecuteCommand(r, value.(string), config, logger)
+		err, stdouterr := ExecuteCommand(r, value, config, logger)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			if config.ReturnResult {

@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	//"strings"
-	"sync"
+	//"sync"
 	"testing"
 	//config
 	"io"
@@ -31,11 +31,12 @@ here'"
 `)
 
 var testLogger *slog.Logger
-var testFuncMap sync.Map
+var testFuncMap map[string]string
 var testMux http.Handler
 var testConfig Config
 
 func TestMain(m *testing.M) {
+	testFuncMap = map[string]string{}
 	testConfig = Config{}
 	testConfig.IPwhitelist = true
 	testConfig.ReplaceParam = true
@@ -50,20 +51,20 @@ func TestMain(m *testing.M) {
 }
 
 func TestCsvParsing(t *testing.T) {
-	LoadRoutesIntoMap(&testFuncMap, csvTestFile, testLogger)
-	if _, exists := testFuncMap.Load("/testBasic"); !exists {
+	LoadRoutesIntoMap(testFuncMap, csvTestFile, testLogger)
+	if _, exists := testFuncMap["/testBasic"]; !exists {
 		t.Fatal("funcMap missed /testBasic")
 	}
-	if _, exists := testFuncMap.Load("/testMultiline"); !exists {
+	if _, exists := testFuncMap["/testMultiline"]; !exists {
 		t.Fatal("funcMap missed /testMultiline")
 	}
-	if _, exists := testFuncMap.Load("/testReplace"); !exists {
+	if _, exists := testFuncMap["/testReplace"]; !exists {
 		t.Fatal("funcMap missed /testReplace")
 	}
 }
 
 func TestServerCreation(t *testing.T) {
-	testMux = NewServer(&testConfig, &testFuncMap, testLogger)
+	testMux = NewServer(&testConfig, testFuncMap, testLogger)
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/", nil)
 	req.RemoteAddr = "127.0.0.1:123"
@@ -145,7 +146,7 @@ func TestNoRoute(t *testing.T) {
 
 func TestVerbose(t *testing.T) {
 	testConfig.ReturnResult = true
-	testMux = NewServer(&testConfig, &testFuncMap, testLogger)
+	testMux = NewServer(&testConfig, testFuncMap, testLogger)
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/testBasic", nil)
 	req.RemoteAddr = "127.0.0.1:123"
