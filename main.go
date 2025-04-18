@@ -188,7 +188,7 @@ func NewServer(config *Config, funcMap map[string]string, logger *slog.Logger) h
 			return
 		}
 
-		err, stdouterr := ExecuteCommand(r, value, config, logger)
+		stdouterr, err := ExecuteCommand(r, value, config, logger)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			if config.ReturnResult {
@@ -229,7 +229,7 @@ func WrapLogging(next http.Handler, logger *slog.Logger) http.Handler {
 	})
 }
 
-func ExecuteCommand(r *http.Request, command string, config *Config, logger *slog.Logger) (error, string) {
+func ExecuteCommand(r *http.Request, command string, config *Config, logger *slog.Logger) (string, error) {
 	path := r.URL.Path
 	params := r.URL.Query()
 	if r.Method == "POST" {
@@ -248,7 +248,7 @@ func ExecuteCommand(r *http.Request, command string, config *Config, logger *slo
 				if config.DontStopReplacing {
 					continue
 				} else {
-					return errors.New("GET param has more than 1 or less than 1 values"), ""
+					return "", errors.New("GET param has more than 1 or less than 1 values")
 				}
 			}
 
@@ -257,7 +257,7 @@ func ExecuteCommand(r *http.Request, command string, config *Config, logger *slo
 				if config.DontStopReplacing {
 					continue
 				} else {
-					return errors.New("GET param name doesn't begin with $"), ""
+					return "", errors.New("GET param name doesn't begin with $")
 				}
 			}
 			if !config.ReplaceRegex.MatchString(value) {
@@ -265,7 +265,7 @@ func ExecuteCommand(r *http.Request, command string, config *Config, logger *slo
 				if config.DontStopReplacing {
 					continue
 				} else {
-					return errors.New("GET param value doesn't match regex"), ""
+					return "", errors.New("GET param value doesn't match regex")
 				}
 			}
 			command = strings.ReplaceAll(command, name, value)
@@ -275,5 +275,5 @@ func ExecuteCommand(r *http.Request, command string, config *Config, logger *slo
 	starttime := time.Now()
 	body, err := ec.CombinedOutput()
 	logger.Info("execution", "path", path, "duration", time.Since(starttime), "stdouterr", string(body), "err", err)
-	return err, string(body)
+	return string(body), err
 }
