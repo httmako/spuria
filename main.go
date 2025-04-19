@@ -30,6 +30,7 @@ type Config struct {
 	ReplaceParam      bool
 	ReplaceRegex      *regexp.Regexp
 	DontStopReplacing bool
+	Timeout       int
 }
 
 func LoadRoutesIntoMap(newMap map[string]string, csvText []byte) {
@@ -62,6 +63,7 @@ func parseFlags() (config *Config) {
 	flag.BoolVar(&conf.ReplaceParam, "replaceparam", false, "replace GET parameters starting with $ inside the bash script, POST body will be replacing $body")
 	flag.StringVar(&regex, "replaceregex", "^[ a-zA-Z0-9/-]*$", "regex for allowed parameter replacing characters")
 	flag.BoolVar(&conf.DontStopReplacing, "nostop", false, "do not stop when encountering an error in the parameter replacement")
+	flag.IntVar(&conf.Timeout, "timeout", 30, "request (bash) timeout in seconds")
 
 	flag.Parse()
 
@@ -116,6 +118,7 @@ func main() {
 	httpServer := &http.Server{
 		Addr:    fmt.Sprintf("%s:%d", config.IP, config.Port),
 		Handler: NewServer(config, funcMap, logger),
+		WriteTimeout: time.Duration(config.Timeout) * time.Second,
 	}
 
 	logger.Info("Startup finished", "timetaken", time.Since(starttime), "ip", config.IP, "port", config.Port, "configLocation", config.CsvPath, "allowedIPs", config.WhitelistedIPs, "logLocation", config.LogPath)
@@ -236,7 +239,7 @@ func ExecuteCommand(r *http.Request, command string, config *Config, logger *slo
 			command = strings.ReplaceAll(command, name, value)
 		}
 	}
-	ec := exec.Command("bash", "-c", command) //.Output()
+	ec := exec.CommandContext(r.Context(), "bash", "-c", command) //.Output()
 	starttime := time.Now()
 	body, err := ec.CombinedOutput()
 	logger.Info("execution", "path", path, "duration", time.Since(starttime), "stdouterr", string(body), "err", err)
