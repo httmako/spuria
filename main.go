@@ -25,9 +25,9 @@ type Config struct {
 	CsvPath           string
 	LogPath           string
 	StaticCommand     string
-	ReturnResult      bool
+	NoResult          bool
 	RateLimit         int
-	ReplaceParam      bool
+	NoReplace         bool
 	ReplaceRegex      *regexp.Regexp
 	DontStopReplacing bool
 	Timeout           int
@@ -59,9 +59,9 @@ func parseFlags() (config *Config) {
 	flag.StringVar(&conf.CsvPath, "routes", "", "bash commands file to load, e.g. `./routes.csv`")
 	flag.StringVar(&conf.LogPath, "log", "stdout", "where to log to, e.g. `./spuria.log`")
 	flag.StringVar(&conf.StaticCommand, "cmd", "", "static command to execute for /do , e.g. `\"echo 'hi'\"` , if this is set no csv (-routes) will be loaded")
-	flag.BoolVar(&conf.ReturnResult, "returnresult", false, "returns the command output in the http response, default is OK/ERR for 200/500 response body")
+	flag.BoolVar(&conf.NoResult, "noresult", false, "does not return command output in the http response, if true it will instead return OK/ERR for 200/500 responses")
 	flag.IntVar(&conf.RateLimit, "maxratelimit", 10, "requests allowed per URL per minute, 0 = infinite")
-	flag.BoolVar(&conf.ReplaceParam, "replaceparam", false, "replace GET parameters starting with $ inside the bash script, POST body will be replacing $body")
+	flag.BoolVar(&conf.NoReplace, "noreplace", false, "if true $variables in GET params and POST body will not be used in command execution")
 	flag.StringVar(&regex, "replaceregex", "^[ a-zA-Z0-9/-]*$", "regex for allowed parameter replacing characters")
 	flag.BoolVar(&conf.DontStopReplacing, "nostop", false, "do not stop when encountering an error in the parameter replacement")
 	flag.IntVar(&conf.Timeout, "timeout", 30, "request (bash) timeout in seconds")
@@ -186,7 +186,7 @@ func NewServer(config *Config, funcMap map[string]string, logger *slog.Logger) h
 			status = http.StatusInternalServerError
 		}
 		w.WriteHeader(status)
-		if config.ReturnResult {
+		if !config.NoResult {
 			fmt.Fprint(w, stdouterr)
 		} else {
 			io.WriteString(w, http.StatusText(status))
@@ -219,7 +219,7 @@ func WrapLogging(next http.Handler, logger *slog.Logger) http.Handler {
 func ExecuteCommand(r *http.Request, command string, config *Config, logger *slog.Logger) (string, error) {
 	path := r.URL.Path
 	params := r.URL.Query()
-	if len(params) > 0 && config.ReplaceParam {
+	if len(params) > 0 && !config.NoReplace {
 		for name, values := range params {
 			value := values[0]
 			if len(values) > 1 || !strings.HasPrefix(name, "$") || !config.ReplaceRegex.MatchString(value) {
@@ -235,7 +235,7 @@ func ExecuteCommand(r *http.Request, command string, config *Config, logger *slo
 	}
 	ec := exec.CommandContext(r.Context(), "bash", "-c", command) //.Output()
 	starttime := time.Now()
-	if r.Method == "POST" && config.ReplaceParam {
+	if r.Method == "POST" && !config.NoReplace {
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			panic(fmt.Errorf("error reading body: %s", err))
@@ -244,7 +244,7 @@ func ExecuteCommand(r *http.Request, command string, config *Config, logger *slo
 		if err != nil {
 			panic(fmt.Errorf("error opening stdin: %s", err))
 		}
-		go func(){
+		go func() {
 			defer stdin.Close()
 			stdin.Write(body)
 		}()
