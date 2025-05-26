@@ -219,14 +219,6 @@ func WrapLogging(next http.Handler, logger *slog.Logger) http.Handler {
 func ExecuteCommand(r *http.Request, command string, config *Config, logger *slog.Logger) (string, error) {
 	path := r.URL.Path
 	params := r.URL.Query()
-	if r.Method == "POST" {
-		params = map[string][]string{}
-		body, err := io.ReadAll(r.Body)
-		if err != nil {
-			panic(fmt.Errorf("error reading body: %s", err))
-		}
-		params["$body"] = []string{string(body)}
-	}
 	if len(params) > 0 && config.ReplaceParam {
 		for name, values := range params {
 			value := values[0]
@@ -243,6 +235,20 @@ func ExecuteCommand(r *http.Request, command string, config *Config, logger *slo
 	}
 	ec := exec.CommandContext(r.Context(), "bash", "-c", command) //.Output()
 	starttime := time.Now()
+	if r.Method == "POST" && config.ReplaceParam {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			panic(fmt.Errorf("error reading body: %s", err))
+		}
+		stdin, err := ec.StdinPipe()
+		if err != nil {
+			panic(fmt.Errorf("error opening stdin: %s", err))
+		}
+		go func(){
+			defer stdin.Close()
+			stdin.Write(body)
+		}()
+	}
 	body, err := ec.CombinedOutput()
 	if config.Verbose {
 		logger.Info("execution", "url", path, "command", command, "duration", time.Since(starttime), "stdouterr", string(body), "err", err)

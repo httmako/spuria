@@ -27,7 +27,7 @@ $parm2
 here'"
 /testError,somethingthatdoesntexist
 /testFuzz,echo -n '$parm1'
-/testPost,echo -n '$body'
+/testPost,cat -
 `)
 
 var testLogger *slog.Logger

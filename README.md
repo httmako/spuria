@@ -28,7 +28,7 @@ With this small application you could easily replace old/insecure APIs that use 
 
 # Usage
 
-By default the application logs to stdout, listens on port 4870 and listens only on IP `127.0.0.1` (and only allows connections from `127.0.0.1`).  
+By default the application logs to stdout, listens on port 4870 and listens only on IP `127.0.0.1`.   
 The log is in the "logfmt" format, which can be parsed by Grafana Loki and other logging tools.  
 To start it you have to provide a command to be executed. Examples:  
 
@@ -42,9 +42,9 @@ To start it you have to provide a command to be executed. Examples:
 You can also make it more dynamic and not only execute static bash scripts.  
 If you provide the `-replaceparam` flag then GET parameters will be used inside the bash script.  
 Only GET parameters starting with a $ will have their param name replaced with the value inside the command.  
-If you send a POST request the body of the request will replace the `$body` variable inside the command.
+If you send a POST request the body of the request will be the stdin for the command.
 Only POST and GET requests are allowed.
-Example:
+GET Example:
 
 ```bash
 # Start the service with -replaceparam and have a $ variable in your script
@@ -59,6 +59,17 @@ $ cat test3.txt
 # ReplacedText
 # AnotherReplacedText
 # here
+```
+
+POST Example:
+
+```bash
+# POST data will be stdin for your command, with the example routes file you can test it with /a
+curl --data "abc" -X POST "http://localhost:4870/a"
+# this should return "abc"
+# You can also use example b to convert jpg to png via ffmpeg
+curl --data-binary @in.jpg -X POST "http://localhost:4870/b" --output out.png
+# This will convert your local in.jpg to out.png
 ```
 
 Full help output:
@@ -88,6 +99,10 @@ Usage of ./spuria:
         returns the command output in the http response, default is OK/ERR for 200/500 response body
   -routes ./routes.csv
         bash commands file to load, e.g. ./routes.csv
+  -timeout int
+        request (bash) timeout in seconds (default 30)
+  -verbose
+        log bash command output
 ```
 
 

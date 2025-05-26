@@ -7,3 +7,5 @@ here' > test2.txt"
 $parm1
 $parm2
 here' > test3.txt"
+/a,"cat -"
+/b,"ffmpeg -hide_banner -loglevel error -i pipe: -f apng pipe:"
