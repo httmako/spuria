@@ -87,22 +87,23 @@ Usage of ./spuria:
         where to log to, e.g. ./spuria.log (default "stdout")
   -maxratelimit int
         requests allowed per URL per minute, 0 = infinite (default 10)
+  -noreplace
+        if true $variables in GET params and POST body will not be used in command execution
+  -noresult
+        does not return command output in the http response, if true it will instead return OK/ERR for 200/500 responses
   -nostop
         do not stop when encountering an error in the parameter replacement
   -port int
         port to listen on (default 4870)
-  -replaceparam
-        replace GET parameters starting with $ inside the bash script, POST body will be replacing $body
   -replaceregex string
         regex for allowed parameter replacing characters (default "^[ a-zA-Z0-9/-]*$")
-  -returnresult
-        returns the command output in the http response, default is OK/ERR for 200/500 response body
   -routes ./routes.csv
         bash commands file to load, e.g. ./routes.csv
   -timeout int
         request (bash) timeout in seconds (default 30)
   -verbose
         log bash command output
+
 ```
 
 
